@@ -2,16 +2,18 @@ import express from "express";
 const app = express();
 app.use(express.json({ limit: "2mb" }));
 
-// CORS para permitir llamadas desde tu sitio
+// CORS robusto
 app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "*");
-  res.header("Access-Control-Allow-Headers", "Content-Type");
-  res.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-  if (req.method === "OPTIONS") return res.sendStatus(204);
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(204);
+  }
   next();
 });
 
-// Estado en memoria (suficiente para empezar)
+// Estado en memoria
 let snapshot = {
   core_version: "3.1",
   t: new Date().toISOString(),
