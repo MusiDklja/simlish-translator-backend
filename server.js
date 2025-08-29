@@ -1,68 +1,46 @@
-// server.js — Simlish backend (Render)
-// Node.js + Express, con CORS robusto y estado en memoria.
-
+// Backend mínimo con CORS correcto para Render
 const express = require("express");
 const app = express();
 
-app.set("trust proxy", true);
-
-// ---------- CORS ROBUSTO ----------
+// CORS robusto para GET/POST/OPTIONS
 app.use((req, res, next) => {
-  // Permite cualquier origen (si quieres, cámbialo por tu dominio frontend)
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Origin", "*");           // o pon tu dominio exacto si quieres restringir
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-  // Evitar caching para que siempre veas el último estado
-  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
-
-  if (req.method === "OPTIONS") {
-    // Responder rápido a preflight
-    return res.sendStatus(204);
-  }
+  // evita caches raras
+  res.setHeader("Cache-Control", "no-store");
+  if (req.method === "OPTIONS") return res.sendStatus(204);    // preflight ok
   next();
 });
 
-// ---------- BODY PARSER ----------
-app.use(express.json({ limit: "2mb" }));
+app.use(express.json({ limit: "1mb" }));
 
-// ---------- ESTADO EN MEMORIA ----------
-let snapshot = {
+// Estado en memoria (simple)
+let state = {
   core_version: "3.1",
   t: new Date().toISOString(),
   user: { es2sim: {}, sim2es: {} },
   history: []
 };
 
-// ---------- ENDPOINTS ----------
-
-// GET raíz: devuelve el estado actual
+// GET raíz → devuelve snapshot
 app.get("/", (req, res) => {
-  res.json(snapshot);
+  res.json(state);
 });
 
-// POST raíz: reemplaza el estado (validando estructura básica)
+// POST raíz → guarda snapshot
 app.post("/", (req, res) => {
-  const body = req.body || {};
-  if (!body.user || typeof body.user !== "object") {
-    return res.status(400).json({ ok: false, error: "Payload inválido: falta 'user'." });
+  if (!req.body || !req.body.user) {
+    return res.status(400).json({ ok: false, error: "payload inválido" });
   }
-  snapshot = {
-    core_version: String(body.core_version || snapshot.core_version),
-    t: body.t || new Date().toISOString(),
-    user: {
-      es2sim: body.user.es2sim || {},
-      sim2es: body.user.sim2es || {}
-    },
-    history: Array.isArray(body.history) ? body.history.slice(-100) : snapshot.history
+  state = {
+    core_version: String(req.body.core_version || "3.1"),
+    t: req.body.t || new Date().toISOString(),
+    user: req.body.user || { es2sim: {}, sim2es: {} },
+    history: Array.isArray(req.body.history) ? req.body.history.slice(-10) : []
   };
-  res.json({ ok: true });
+  res.json({ ok: true, t: state.t });
 });
 
-// Healthcheck simple
-app.get("/healthz", (_req, res) => res.status(200).send("ok"));
-
-// ---------- SERVIDOR ----------
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log("Simlish backend escuchando en puerto", PORT);
-});
+app.listen(PORT, () => console.log("Simlish backend escuchando en", PORT));
