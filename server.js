@@ -1,19 +1,23 @@
-// Backend mínimo con CORS correcto para Render
+// server.js
 const express = require("express");
+const cors = require("cors");
+
 const app = express();
+app.disable("x-powered-by");
 
-// CORS robusto para GET/POST/OPTIONS
-app.use((req, res, next) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");           // o pon tu dominio exacto si quieres restringir
-  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-  // evita caches raras
-  res.setHeader("Cache-Control", "no-store");
-  if (req.method === "OPTIONS") return res.sendStatus(204);    // preflight ok
-  next();
-});
+// CORS — permite cualquier origen (si quieres, luego restringimos)
+app.use(cors({
+  origin: true,              // refleja el Origin que venga
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type"],
+  maxAge: 86400              // cachea el preflight 24h
+}));
 
-app.use(express.json({ limit: "1mb" }));
+// Necesario para que Express responda a OPTIONS en todas las rutas
+app.options("*", cors());
+
+// Body JSON
+app.use(express.json({ limit: "2mb" }));
 
 // Estado en memoria (simple)
 let state = {
@@ -23,24 +27,28 @@ let state = {
   history: []
 };
 
-// GET raíz → devuelve snapshot
+// Salud
+app.get("/health", (req, res) => res.status(200).json({ ok: true }));
+
+// GET raíz → lee
 app.get("/", (req, res) => {
-  res.json(state);
+  res.status(200).json(state);
 });
 
-// POST raíz → guarda snapshot
+// POST raíz → guarda
 app.post("/", (req, res) => {
   if (!req.body || !req.body.user) {
-    return res.status(400).json({ ok: false, error: "payload inválido" });
+    return res.status(400).json({ error: "Payload inválido; falta campo 'user'." });
   }
   state = {
     core_version: String(req.body.core_version || "3.1"),
-    t: req.body.t || new Date().toISOString(),
+    t: new Date().toISOString(),
     user: req.body.user || { es2sim: {}, sim2es: {} },
     history: Array.isArray(req.body.history) ? req.body.history.slice(-10) : []
   };
-  res.json({ ok: true, t: state.t });
+  return res.status(200).json({ ok: true, t: state.t });
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log("Simlish backend escuchando en", PORT));
+// Arranque
+const port = process.env.PORT || 3000;
+app.listen(port, () => console.log("Simlish backend on port", port));
