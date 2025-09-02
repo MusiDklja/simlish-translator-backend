@@ -82,31 +82,6 @@ app.post("/", (req, res) => {
 // Healthcheck
 app.get("/health", (req, res) => res.json({ ok: true }));
 
-// === Visits endpoint: fetch count from hits.sh and return JSON ===
-const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
-app.get("/visits", async (req, res) => {
-  try {
-    const desk = "https://hits.sh/https://musidklja.github.io/simuch-translator.svg";
-    const mob  = "https://hits.sh/musidklja.github.io/simuch-translator.svg";
-    async function read(url){
-      const r = await fetch(url);
-      if(!r.ok) throw new Error("bad");
-      const svg = await r.text();
-      const matches = [...svg.matchAll(/<text[^>]*>([^<]+)<\/text>/gi)].map(m=>m[1].trim()).reverse();
-      const raw = matches.find(t => /^\d[\d,\.]*$/.test(t)) || "0";
-      const n = parseInt(raw.replace(/[^\d]/g,""), 10) || 0;
-      return n;
-    }
-    let count = 0;
-    try { count = await read(desk); } catch { count = await read(mob); }
-    res.set("Access-Control-Allow-Origin", "*");
-    res.json({ count });
-  } catch (e) {
-    res.set("Access-Control-Allow-Origin", "*");
-    res.json({ count: 0 });
-  }
-});
-
 app.listen(PORT, () => {
   console.log(`Simlish backend listo en :${PORT}`);
 });
