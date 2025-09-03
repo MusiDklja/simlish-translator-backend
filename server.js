@@ -1,4 +1,4 @@
-// server.js
+// server.js (Render FIX) — responde a "/", "/health", "/api/core", "/api/state"
 const express = require("express");
 const fs = require("fs");
 const path = require("path");
@@ -10,13 +10,11 @@ const CORE_FILE = process.env.CORE_FILE || path.join(__dirname, "core.json");
 
 const app = express();
 
-// CORS: permite desde cualquier origen (ajusta si quieres restringir)
-app.use(cors({ origin: true, credentials: false }));
-
-// JSON body
+// CORS: abre para cualquier origen (ajusta si quieres restringir)
+app.use(cors({ origin: true }));
 app.use(express.json({ limit: "1mb" }));
 
-// Carga/salva a disco
+// Helpers de disco
 function load(file, fallback) {
   try { return JSON.parse(fs.readFileSync(file, "utf8")); }
   catch { return fallback; }
@@ -36,38 +34,42 @@ function recalcCounts() {
   const learned = Object.keys(state.userDict?.ES2SIM || {}).length;
   const learned2 = Object.keys(state.userDict?.SIM2ES || {}).length;
   state.counts.learned = Math.max(learned, learned2);
-  const core = load(CORE_FILE, { core: { ES2SIM: {}, SIM2ES: {} }});
+
+  const core = load(CORE_FILE, { core: { ES2SIM: {}, SIM2ES: {} } });
   const coreSize = Object.keys(core.core?.ES2SIM || {}).length;
   state.counts.total = coreSize + state.counts.learned;
   state.counts.lastUpdate = new Date().toISOString();
 }
-recalcCounts();
 
-// Endpoints
+// Raíz — para que Render no muestre "Cannot GET /"
+app.get("/", (_, res) => {
+  res.type("text/plain").send("OK");
+});
+
+// Health
 app.get("/health", (_, res) => res.json({ ok: true }));
 
-// Devuelve el core.json (útil para el front si el fetch local falla)
+// Core (opcional para el front)
 app.get("/api/core", (_, res) => {
-  const core = load(CORE_FILE, { core: { ES2SIM: {}, SIM2ES: {} }});
+  const core = load(CORE_FILE, { core: { ES2SIM: {}, SIM2ES: {} } });
   res.json(core);
 });
 
-// Devuelve el estado
+// State (GET)
 app.get("/api/state", (_, res) => {
+  recalcCounts();
   res.json(state);
 });
 
-// Fusiona y guarda el estado
+// State (POST merge)
 app.post("/api/state", (req, res) => {
   const body = req.body || {};
   if (body.userDict && typeof body.userDict === "object") {
-    // Merge superficial por clave (no pisa todo)
     state.userDict.ES2SIM = { ...(state.userDict.ES2SIM||{}), ...(body.userDict.ES2SIM||{}) };
     state.userDict.SIM2ES = { ...(state.userDict.SIM2ES||{}), ...(body.userDict.SIM2ES||{}) };
   }
   if (Array.isArray(body.history)) {
-    // mantenemos hasta 30 últimos
-    state.history = [...state.history, ...body.history].slice(-30);
+    state.history = [...state.history, ...body.history].slice(-50);
   }
   recalcCounts();
   save(DATA_FILE, state);
@@ -75,5 +77,5 @@ app.post("/api/state", (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Simlish backend listo en :${PORT}`);
+  console.log(`Simlish backend (Render FIX) escuchando en :${PORT}`);
 });
