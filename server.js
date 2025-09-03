@@ -6,81 +6,73 @@ const cors = require("cors");
 
 const PORT = process.env.PORT || 3000;
 const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, "data.json");
+const CORE_FILE = process.env.CORE_FILE || path.join(__dirname, "core.json");
 
-// CORS: ajusta el origin si quieres restringirlo
 const app = express();
+
+// CORS: permite desde cualquier origen (ajusta si quieres restringir)
 app.use(cors({ origin: true, credentials: false }));
+
+// JSON body
 app.use(express.json({ limit: "1mb" }));
 
-// Estado en memoria
-let state = {
-  core_version: "3.1",
-  user: { es2sim: {}, sim2es: {} },
-  history: []
-};
-
-// Cargar desde archivo si existe
-try {
-  if (fs.existsSync(DATA_FILE)) {
-    const raw = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
-    if (raw && raw.user) state = raw;
-  }
-} catch (e) {
-  console.error("No se pudo leer data.json:", e.message);
+// Carga/salva a disco
+function load(file, fallback) {
+  try { return JSON.parse(fs.readFileSync(file, "utf8")); }
+  catch { return fallback; }
+}
+function save(file, obj) {
+  fs.writeFileSync(file, JSON.stringify(obj, null, 2), "utf8");
 }
 
-// Helpers de guardado
-function save() {
-  try {
-    fs.writeFileSync(DATA_FILE, JSON.stringify(state, null, 2), "utf8");
-  } catch (e) {
-    console.error("No se pudo guardar data.json:", e.message);
-  }
-}
-
-// GET: devuelve estado completo
-app.get("/", (req, res) => {
-  res.json({
-    core_version: state.core_version,
-    user: state.user,
-    history: state.history
-  });
+// Estado persistente
+let state = load(DATA_FILE, {
+  userDict: { ES2SIM: {}, SIM2ES: {} },
+  history: [],
+  counts: { learned: 0, total: 0, lastUpdate: null }
 });
 
-// POST: recibe payload del cliente y guarda (merge simple o replace si viene flag flush)
-app.post("/", (req, res) => {
+function recalcCounts() {
+  const learned = Object.keys(state.userDict?.ES2SIM || {}).length;
+  const learned2 = Object.keys(state.userDict?.SIM2ES || {}).length;
+  state.counts.learned = Math.max(learned, learned2);
+  const core = load(CORE_FILE, { core: { ES2SIM: {}, SIM2ES: {} }});
+  const coreSize = Object.keys(core.core?.ES2SIM || {}).length;
+  state.counts.total = coreSize + state.counts.learned;
+  state.counts.lastUpdate = new Date().toISOString();
+}
+recalcCounts();
+
+// Endpoints
+app.get("/health", (_, res) => res.json({ ok: true }));
+
+// Devuelve el core.json (útil para el front si el fetch local falla)
+app.get("/api/core", (_, res) => {
+  const core = load(CORE_FILE, { core: { ES2SIM: {}, SIM2ES: {} }});
+  res.json(core);
+});
+
+// Devuelve el estado
+app.get("/api/state", (_, res) => {
+  res.json(state);
+});
+
+// Fusiona y guarda el estado
+app.post("/api/state", (req, res) => {
   const body = req.body || {};
-  const flush = !!body.flush;
-
-  // Opcionalmente podrías validar core_version si quieres
-  // if (body.core_version && body.core_version !== state.core_version) { ... }
-
-  if (!body.user || typeof body.user !== "object") {
-    return res.status(400).json({ error: "Payload inválido: falta user{es2sim,sim2es}" });
+  if (body.userDict && typeof body.userDict === "object") {
+    // Merge superficial por clave (no pisa todo)
+    state.userDict.ES2SIM = { ...(state.userDict.ES2SIM||{}), ...(body.userDict.ES2SIM||{}) };
+    state.userDict.SIM2ES = { ...(state.userDict.SIM2ES||{}), ...(body.userDict.SIM2ES||{}) };
   }
-
-  if (flush) {
-    // Reemplazo completo
-    state.user = {
-      es2sim: body.user.es2sim || {},
-      sim2es: body.user.sim2es || {}
-    };
-    state.history = Array.isArray(body.history) ? body.history.slice(-10) : state.history;
-  } else {
-    // Merge conservador
-    state.user.es2sim = Object.assign({}, state.user.es2sim, body.user.es2sim || {});
-    state.user.sim2es = Object.assign({}, state.user.sim2es, body.user.sim2es || {});
-    if (Array.isArray(body.history)) {
-      state.history = body.history.slice(-10);
-    }
+  if (Array.isArray(body.history)) {
+    // mantenemos hasta 30 últimos
+    state.history = [...state.history, ...body.history].slice(-30);
   }
-
-  save();
-  res.json({ ok: true });
+  recalcCounts();
+  save(DATA_FILE, state);
+  res.json({ ok: true, counts: state.counts });
 });
-
-// Healthcheck
-app.get("/health", (req, res) => res.json({ ok: true }));
 
 app.listen(PORT, () => {
   console.log(`Simlish backend listo en :${PORT}`);
