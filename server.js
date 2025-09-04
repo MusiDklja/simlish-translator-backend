@@ -1,4 +1,4 @@
-// server.js — rutas: "/", "/health", "/api/core", "/api/state"
+// server.js — Root returns JSON for Host check compatibility
 const express = require("express");
 const fs = require("fs");
 const path = require("path");
@@ -36,7 +36,9 @@ function recalcCounts() {
   state.counts.lastUpdate = new Date().toISOString();
 }
 
-app.get("/", (_, res) => res.type("text/plain").send("OK"));
+// Root: MUST be JSON so the front's updateHostIndicators() can r.json() and mark OK
+app.get("/", (_, res) => res.json({ ok: true, service: "simuch-backend", ts: Date.now() }));
+
 app.get("/health", (_, res) => res.json({ ok: true }));
 
 app.get("/api/core", (_, res) => {
@@ -64,5 +66,5 @@ app.post("/api/state", (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Simuch backend escuchando en :${PORT}`);
+  console.log(`Simuch backend listo en :${PORT}`);
 });
