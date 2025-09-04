@@ -1,4 +1,4 @@
-// server.js — Root returns JSON for Host check compatibility
+// server.js — Backend Simuch: /, /health, /visit, /api/state (GET/POST)
 const express = require("express");
 const fs = require("fs");
 const path = require("path");
@@ -16,57 +16,64 @@ function load(file, fallback) {
   try { return JSON.parse(fs.readFileSync(file, "utf8")); }
   catch { return fallback; }
 }
-function save(file, obj) {
-  fs.writeFileSync(file, JSON.stringify(obj, null, 2), "utf8");
+function save(file, data) {
+  try { fs.writeFileSync(file, JSON.stringify(data, null, 2), "utf8"); }
+  catch {}
 }
 
+// Estado en memoria
+let core = load(CORE_FILE, { core: { ES2SIM: {}, SIM2ES: {} } });
 let state = load(DATA_FILE, {
   userDict: { ES2SIM: {}, SIM2ES: {} },
   history: [],
-  counts: { learned: 0, total: 0, lastUpdate: null }
+  counts: { learned: 0, total: 0, visits: 0, lastUpdate: null }
 });
 
-function recalcCounts() {
-  const learned = Object.keys(state.userDict?.ES2SIM || {}).length;
-  const learned2 = Object.keys(state.userDict?.SIM2ES || {}).length;
-  state.counts.learned = Math.max(learned, learned2);
-  const core = load(CORE_FILE, { core: { ES2SIM: {}, SIM2ES: {} } });
-  const coreSize = Object.keys(core.core?.ES2SIM || {}).length;
-  state.counts.total = coreSize + state.counts.learned;
+function recalcCounts(){
+  const learned = Object.keys(state.userDict.ES2SIM||{}).length
+                + Object.keys(state.userDict.SIM2ES||{}).length;
+  const totalCore = (core && core.core)
+    ? Object.keys(core.core.ES2SIM||{}).length + Object.keys(core.core.SIM2ES||{}).length
+    : 0;
+  state.counts.learned = learned;
+  state.counts.total = learned + totalCore;
   state.counts.lastUpdate = new Date().toISOString();
 }
 
-// Root: MUST be JSON so the front's updateHostIndicators() can r.json() and mark OK
-app.get("/", (_, res) => res.json({ ok: true, service: "simuch-backend", ts: Date.now() }));
+app.get("/", (_req, res) => {
+  // Para el chip Host: OK en el front
+  res.json({ ok: true, service: "simuch-backend", ts: new Date().toISOString() });
+});
 
-app.get("/health", (_, res) => res.json({ ok: true }));
+app.get("/health", (_req, res) => {
+  res.json({ ok: true, ts: new Date().toISOString() });
+});
 
-app.get("/visit", (req, res) => {
+app.get("/visit", (_req, res) => {
   state.counts = state.counts || {};
   state.counts.visits = (state.counts.visits || 0) + 1;
-  try { fs.writeFileSync(DATA_FILE, JSON.stringify(state, null, 2), "utf8"); } catch {}
+  save(DATA_FILE, state);
   res.json({ ok: true, visits: state.counts.visits });
 });
 
-app.get("/api/core", (_, res) => {
-  const core = load(CORE_FILE, { core: { ES2SIM: {}, SIM2ES: {} } });
-  res.json(core);
-});
-
-app.get("/api/state", (_, res) => {
-  recalcCounts();
-  res.json(state);
+app.get("/api/state", (_req, res) => {
+  res.json({ ok: true, userDict: state.userDict, history: state.history, counts: state.counts });
 });
 
 app.post("/api/state", (req, res) => {
   const body = req.body || {};
-  if (body.userDict && typeof body.userDict === "object") {
+  state.userDict = state.userDict || { ES2SIM: {}, SIM2ES: {} };
+  state.history = Array.isArray(state.history) ? state.history : [];
+
+  // Merge (sumar sin borrar)
+  if (body && body.userDict) {
     state.userDict.ES2SIM = { ...(state.userDict.ES2SIM||{}), ...(body.userDict.ES2SIM||{}) };
     state.userDict.SIM2ES = { ...(state.userDict.SIM2ES||{}), ...(body.userDict.SIM2ES||{}) };
   }
   if (Array.isArray(body.history)) {
     state.history = [...state.history, ...body.history].slice(-50);
   }
+
   recalcCounts();
   save(DATA_FILE, state);
   res.json({ ok: true, counts: state.counts });
