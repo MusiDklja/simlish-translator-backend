@@ -41,6 +41,13 @@ app.get("/", (_, res) => res.json({ ok: true, service: "simuch-backend", ts: Dat
 
 app.get("/health", (_, res) => res.json({ ok: true }));
 
+app.get("/visit", (req, res) => {
+  state.counts = state.counts || {};
+  state.counts.visits = (state.counts.visits || 0) + 1;
+  try { fs.writeFileSync(DATA_FILE, JSON.stringify(state, null, 2), "utf8"); } catch {}
+  res.json({ ok: true, visits: state.counts.visits });
+});
+
 app.get("/api/core", (_, res) => {
   const core = load(CORE_FILE, { core: { ES2SIM: {}, SIM2ES: {} } });
   res.json(core);
